@@ -33,8 +33,7 @@ vendor/
 .Trashes
 Thumbs.db
 
-# Build output
-/bin/
+# Build output (local builds only, not bundled binaries)
 /dist/
 
 # Test databases

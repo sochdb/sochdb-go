@@ -199,8 +199,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Add bin directory
-          git add bin/
+          # Add bin directory (use -f to force in case of .gitignore)
+          git add -f bin/
           git add database.go
           
           # Check if there are changes to commit
