@@ -130,16 +130,31 @@ jobs:
           go mod tidy
           go build ./...
 
+      - name: Clean up extracted files
+        run: |
+          # Remove extracted platform directories that came from the tarballs
+          rm -rf aarch64-apple-darwin x86_64-unknown-linux-gnu x86_64-pc-windows-msvc
+          # Remove any stray libraries
+          rm -f *.dylib *.so *.dll 2>/dev/null || true
+
       - name: Create release archive
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           
-          # Create archive with Go source and binaries
-          tar -czvf toondb-go-${VERSION}.tar.gz \
+          # Create archive in /tmp to avoid "file changed" error
+          tar -czvf /tmp/toondb-go-${VERSION}.tar.gz \
             --exclude='.git' \
             --exclude='.github' \
-            --exclude='*.tar.gz' \
+            --exclude='aarch64-apple-darwin' \
+            --exclude='x86_64-unknown-linux-gnu' \
+            --exclude='x86_64-pc-windows-msvc' \
+            --exclude='*.dylib' \
+            --exclude='*.so' \
+            --exclude='*.dll' \
             .
+          
+          # Move to current directory
+          mv /tmp/toondb-go-${VERSION}.tar.gz .
           
           # List contents
           echo "Archive contents:"
