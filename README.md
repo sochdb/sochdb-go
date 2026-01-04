@@ -510,6 +510,23 @@ go test -v ./...
 go test -bench=. -benchmem ./...
 ```
 
+## Privacy & Analytics
+
+ToonDB collects **anonymous usage analytics** to help improve the SDK. We collect:
+- ✅ SDK version
+- ✅ Error types (connection, query, permission, timeout)
+
+We **never** collect:
+- ❌ User data
+- ❌ Database paths
+- ❌ Keys or values
+- ❌ Queries
+
+**Opt-out anytime:**
+```bash
+export TOONDB_DISABLE_ANALYTICS=true
+```
+
 ## License
 
 Apache License 2.0

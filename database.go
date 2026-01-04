@@ -408,6 +408,9 @@ func (db *Database) Close() error {
 
 	db.closed = true
 
+	// Flush analytics events before closing
+	flushAnalytics()
+
 	// Close the client connection first
 	err := db.client.Close()
 

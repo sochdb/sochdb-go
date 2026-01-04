@@ -68,12 +68,14 @@ func trackEvent(eventName string, properties map[string]interface{}) {
 	}
 	properties["sdk_version"] = Version
 	properties["sdk_language"] = "go"
+	properties["$lib"] = "posthog-go" // Identifies library in PostHog UI
 
 	// Use anonymous distinct ID (we don't track users)
 	// Generate a unique ID based on machine or use "anonymous"
 	distinctID := "anonymous"
 
 	// Enqueue event (non-blocking)
+	// PostHog client will batch and send events automatically
 	_ = analyticsClient.Enqueue(posthog.Capture{
 		DistinctId: distinctID,
 		Event:      eventName,
@@ -94,9 +96,11 @@ func trackError(errorType, location string) {
 	})
 }
 
-// closeAnalytics closes the PostHog client (called on shutdown).
-func closeAnalytics() {
+// flushAnalytics flushes any pending events (should be called before program exit)
+func flushAnalytics() {
 	if analyticsInitialized && analyticsClient != nil {
+		// Close will flush all pending events
 		_ = analyticsClient.Close()
+		analyticsInitialized = false
 	}
 }
