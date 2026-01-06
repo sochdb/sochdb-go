@@ -131,7 +131,7 @@ func (g *GraphOverlay) AddNode(nodeID, nodeType string, properties map[string]in
 		return nil, fmt.Errorf("failed to marshal node: %w", err)
 	}
 
-	if err := g.db.Put(g.nodeKey(nodeID), data); err != nil {
+	if err := g.db.Put([]byte(g.nodeKey(nodeID)), data); err != nil {
 		return nil, err
 	}
 
@@ -140,7 +140,7 @@ func (g *GraphOverlay) AddNode(nodeID, nodeType string, properties map[string]in
 
 // GetNode retrieves a node by ID.
 func (g *GraphOverlay) GetNode(nodeID string) (*GraphNode, error) {
-	data, err := g.db.Get(g.nodeKey(nodeID))
+	data, err := g.db.Get([]byte(g.nodeKey(nodeID)))
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +180,7 @@ func (g *GraphOverlay) UpdateNode(nodeID string, properties map[string]interface
 		return nil, fmt.Errorf("failed to marshal node: %w", err)
 	}
 
-	if err := g.db.Put(g.nodeKey(nodeID), data); err != nil {
+	if err := g.db.Put([]byte(g.nodeKey(nodeID)), data); err != nil {
 		return nil, err
 	}
 
@@ -221,7 +221,7 @@ func (g *GraphOverlay) DeleteNode(nodeID string, cascade bool) (bool, error) {
 		}
 	}
 
-	if err := g.db.Delete(g.nodeKey(nodeID)); err != nil {
+	if err := g.db.Delete([]byte(g.nodeKey(nodeID))); err != nil {
 		return false, err
 	}
 
@@ -230,7 +230,7 @@ func (g *GraphOverlay) DeleteNode(nodeID string, cascade bool) (bool, error) {
 
 // NodeExists checks if a node exists.
 func (g *GraphOverlay) NodeExists(nodeID string) (bool, error) {
-	data, err := g.db.Get(g.nodeKey(nodeID))
+	data, err := g.db.Get([]byte(g.nodeKey(nodeID)))
 	if err != nil {
 		return false, err
 	}
@@ -260,12 +260,12 @@ func (g *GraphOverlay) AddEdge(fromID, edgeType, toID string, properties map[str
 	}
 
 	// Store edge
-	if err := g.db.Put(g.edgeKey(fromID, edgeType, toID), data); err != nil {
+	if err := g.db.Put([]byte(g.edgeKey(fromID, edgeType, toID)), data); err != nil {
 		return nil, err
 	}
 
 	// Store reverse index
-	if err := g.db.Put(g.reverseIndexKey(edgeType, toID, fromID), []byte(fromID)); err != nil {
+	if err := g.db.Put([]byte(g.reverseIndexKey(edgeType, toID, fromID)), []byte(fromID)); err != nil {
 		return nil, err
 	}
 
@@ -274,7 +274,7 @@ func (g *GraphOverlay) AddEdge(fromID, edgeType, toID string, properties map[str
 
 // GetEdge retrieves a specific edge.
 func (g *GraphOverlay) GetEdge(fromID, edgeType, toID string) (*GraphEdge, error) {
-	data, err := g.db.Get(g.edgeKey(fromID, edgeType, toID))
+	data, err := g.db.Get([]byte(g.edgeKey(fromID, edgeType, toID)))
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +293,7 @@ func (g *GraphOverlay) GetEdge(fromID, edgeType, toID string) (*GraphEdge, error
 // GetEdges retrieves all outgoing edges from a node.
 func (g *GraphOverlay) GetEdges(fromID, edgeType string) ([]*GraphEdge, error) {
 	prefix := g.edgePrefix(fromID, edgeType)
-	results, err := g.db.ScanPrefix(prefix)
+	results, err := g.db.Scan(prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +317,7 @@ func (g *GraphOverlay) GetIncomingEdges(toID, edgeType string) ([]*GraphEdge, er
 	if edgeType != "" {
 		// Query specific edge type
 		prefix := g.reverseIndexPrefix(edgeType, toID)
-		results, err := g.db.ScanPrefix(prefix)
+		results, err := g.db.Scan(prefix)
 		if err != nil {
 			return nil, err
 		}
@@ -335,13 +335,13 @@ func (g *GraphOverlay) GetIncomingEdges(toID, edgeType string) ([]*GraphEdge, er
 	} else {
 		// Query all edge types - scan all index entries
 		indexPrefix := fmt.Sprintf("%s/index/", g.prefix)
-		results, err := g.db.ScanPrefix(indexPrefix)
+		results, err := g.db.Scan(indexPrefix)
 		if err != nil {
 			return nil, err
 		}
 
 		for _, result := range results {
-			parts := strings.Split(result.Key, "/")
+			parts := strings.Split(string(result.Key), "/")
 			if len(parts) >= 6 && parts[4] == toID {
 				fromID := string(result.Value)
 				et := parts[3]
@@ -370,12 +370,12 @@ func (g *GraphOverlay) DeleteEdge(fromID, edgeType, toID string) (bool, error) {
 	}
 
 	// Delete edge
-	if err := g.db.Delete(g.edgeKey(fromID, edgeType, toID)); err != nil {
+	if err := g.db.Delete([]byte(g.edgeKey(fromID, edgeType, toID))); err != nil {
 		return false, err
 	}
 
 	// Delete reverse index
-	if err := g.db.Delete(g.reverseIndexKey(edgeType, toID, fromID)); err != nil {
+	if err := g.db.Delete([]byte(g.reverseIndexKey(edgeType, toID, fromID))); err != nil {
 		return false, err
 	}
 
@@ -593,7 +593,7 @@ func (g *GraphOverlay) GetNeighbors(nodeID string, edgeTypes []string, direction
 // GetNodesByType retrieves all nodes of a specific type.
 func (g *GraphOverlay) GetNodesByType(nodeType string, limit int) ([]*GraphNode, error) {
 	prefix := fmt.Sprintf("%s/nodes/", g.prefix)
-	results, err := g.db.ScanPrefix(prefix)
+	results, err := g.db.Scan(prefix)
 	if err != nil {
 		return nil, err
 	}

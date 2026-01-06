@@ -231,7 +231,7 @@ func NewAgentRegistry(db *Database) *AgentRegistry {
 }
 
 func (r *AgentRegistry) loadAgents() {
-	results, err := r.db.Scan([]byte(agentPrefix))
+	results, err := r.db.Scan(agentPrefix)
 	if err != nil {
 		return
 	}
@@ -435,7 +435,7 @@ func (r *ToolRouter) WithDefaultStrategy(strategy RoutingStrategy) *ToolRouter {
 }
 
 func (r *ToolRouter) loadTools() {
-	results, err := r.db.Scan([]byte(toolPrefix))
+	results, err := r.db.Scan(toolPrefix)
 	if err != nil {
 		return
 	}

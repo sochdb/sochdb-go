@@ -36,7 +36,7 @@ func main() {
 		DistinctId: "test-user-golang",
 		Event:      "golang_test_event",
 		Properties: map[string]interface{}{
-			"sdk_version":  "0.3.1",
+			"sdk_version":  "0.3.3",
 			"sdk_language": "go",
 			"test_type":    "direct_client",
 			"$lib":         "posthog-go",

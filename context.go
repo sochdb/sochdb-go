@@ -444,7 +444,7 @@ func (q *ContextQuery) Execute() (*ContextResult, error) {
 func (q *ContextQuery) rrfFusion(score1, score2 float64) float64 {
 	// RRF: 1/(k + rank)
 	// For scores, we approximate: combined = s1 + s2 + k / (k + 1/s1 + 1/s2)
-	k := float64(q.fusionK)
+	_ = float64(q.fusionK) // k is reserved for future RRF implementation
 	return score1 + score2
 }
 
@@ -474,7 +474,7 @@ func (q *ContextQuery) executeVectorQuery(vq VectorQueryConfig) ([]ContextChunk,
 func (q *ContextQuery) executeKeywordQuery(kq KeywordQueryConfig) ([]ContextChunk, error) {
 	// This would call the actual keyword search API
 	// For now, use prefix scan as approximation
-	results, err := q.db.ScanPrefix(q.collectionName + "/" + kq.Query)
+	results, err := q.db.Scan(q.collectionName + "/" + kq.Query)
 	if err != nil {
 		return nil, err
 	}
@@ -485,7 +485,7 @@ func (q *ContextQuery) executeKeywordQuery(kq KeywordQueryConfig) ([]ContextChun
 			break
 		}
 		chunks = append(chunks, ContextChunk{
-			ID:    r.Key,
+			ID:    string(r.Key),
 			Text:  string(r.Value),
 			Score: 1.0 / float64(i+1), // Simple rank-based score
 		})
@@ -527,8 +527,8 @@ func (q *ContextQuery) deduplicate(chunks []ContextChunk) []ContextChunk {
 	return result
 }
 
-// VectorSearchResult represents a vector search result.
-type VectorSearchResult struct {
+// ContextVectorSearchResult represents a vector search result for context queries.
+type ContextVectorSearchResult struct {
 	ID       string
 	Value    []byte
 	Score    float32
@@ -537,7 +537,7 @@ type VectorSearchResult struct {
 
 // VectorSearch performs vector similarity search.
 // This is a placeholder - actual implementation depends on DB interface.
-func (db *Database) VectorSearch(collection string, embedding []float32, topK int) ([]VectorSearchResult, error) {
+func (db *Database) VectorSearch(collection string, embedding []float32, topK int) ([]ContextVectorSearchResult, error) {
 	// TODO: Implement actual vector search
 	// This would call the vector index API
 	return nil, nil

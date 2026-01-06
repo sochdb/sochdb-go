@@ -45,7 +45,7 @@ func main() {
 	fmt.Println("  Event: connection_error")
 	fmt.Println("  Properties:")
 	fmt.Println("    - distinct_id: anonymous")
-	fmt.Println("    - sdk_version: 0.3.1")
+	fmt.Println("    - sdk_version: 0.3.3"))
 	fmt.Println("    - sdk_language: go")
 	fmt.Println("    - error_type: connection_error")
 	fmt.Println("    - location: OpenWithConfig")

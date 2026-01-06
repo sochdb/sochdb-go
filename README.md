@@ -34,7 +34,58 @@ go get github.com/toondb/toondb-go@latest
 - ✅ No manual binary installation required for released versions
 - ✅ Development builds fall back to `TOONDB_SERVER_PATH` or system PATH
 
-## What's New in Latest Release
+## What's New in v0.3.3
+
+### 🕸️ Graph Overlay for Agent Memory
+Build lightweight graph structures on top of ToonDB's KV storage for agent memory:
+
+```go
+import toondb "github.com/toondb/toondb-go"
+
+db, _ := toondb.Open("./agent_db")
+graph := toondb.NewGraphOverlay(db, "agent_memory")
+
+// Add nodes (entities, concepts, events)
+graph.AddNode("user_alice", "person", map[string]interface{}{
+    "name": "Alice",
+    "role": "developer",
+})
+graph.AddNode("conv_123", "conversation", map[string]interface{}{
+    "topic": "ToonDB features",
+})
+graph.AddNode("action_456", "action", map[string]interface{}{
+    "type":   "code_commit",
+    "status": "success",
+})
+
+// Add edges (relationships, causality, references)
+graph.AddEdge("user_alice", "started", "conv_123", map[string]interface{}{
+    "timestamp": "2026-01-05",
+})
+graph.AddEdge("conv_123", "triggered", "action_456", map[string]interface{}{
+    "reason": "user request",
+})
+
+// Retrieve nodes and edges
+node, _ := graph.GetNode("user_alice")
+edges, _ := graph.GetEdges("user_alice", "started")
+
+// Graph traversal
+visited, _ := graph.BFS("user_alice", 3, nil, nil)  // BFS from Alice
+path, _ := graph.ShortestPath("user_alice", "action_456", 10, nil)  // Find connection
+
+// Get neighbors
+neighbors, _ := graph.GetNeighbors("conv_123", "both", "")
+
+// Extract subgraph
+subgraph, _ := graph.GetSubgraph([]string{"user_alice", "conv_123", "action_456"})
+```
+
+**Use Cases:**
+- Agent conversation history with causal chains
+- Entity relationship tracking across sessions
+- Action dependency graphs for planning
+- Knowledge graph construction
 
 ### 🛡️ Policy & Safety Hooks
 Enforce safety policies on agent operations with pre/post triggers:
