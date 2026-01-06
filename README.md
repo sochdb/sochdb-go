@@ -36,6 +36,74 @@ go get github.com/toondb/toondb-go@latest
 
 ## What's New in Latest Release
 
+### 🛡️ Policy & Safety Hooks
+Enforce safety policies on agent operations with pre/post triggers:
+
+```go
+db, _ := toondb.Open("./agent_data")
+policy := toondb.NewPolicyEngine(db)
+
+// Block writes to system keys from agents
+policy.BeforeWrite("system/*", func(ctx *toondb.PolicyContext) toondb.PolicyAction {
+    if ctx.AgentID != "" {
+        return toondb.PolicyDeny
+    }
+    return toondb.PolicyAllow
+})
+
+// Redact sensitive data on read
+policy.AfterRead("users/*/email", func(ctx *toondb.PolicyContext) toondb.PolicyAction {
+    if ctx.Get("redact_pii") == "true" {
+        ctx.ModifiedValue = []byte("[REDACTED]")
+        return toondb.PolicyModify
+    }
+    return toondb.PolicyAllow
+})
+
+// Rate limit writes per agent
+policy.AddRateLimit("write", 100, "agent_id")
+
+// Enable audit logging
+policy.EnableAudit(10000)
+
+// Use policy-wrapped operations
+err := policy.Put([]byte("users/alice"), []byte("data"), map[string]string{
+    "agent_id": "agent_001",
+})
+```
+
+### 🔀 Multi-Agent Tool Routing
+Route tool calls to specialized agents with automatic failover:
+
+```go
+db, _ := toondb.Open("./agent_data")
+dispatcher := toondb.NewToolDispatcher(db)
+
+// Register local agent with handler
+dispatcher.RegisterLocalAgent("code_agent",
+    []toondb.ToolCategory{toondb.CategoryCode, toondb.CategoryGit},
+    func(tool string, args map[string]any) (any, error) {
+        return map[string]any{"result": fmt.Sprintf("Processed %s", tool)}, nil
+    }, 100)
+
+// Register remote agent
+dispatcher.RegisterRemoteAgent("search_agent",
+    []toondb.ToolCategory{toondb.CategorySearch},
+    "http://localhost:8001/invoke", 100)
+
+// Register tools
+dispatcher.Router().RegisterTool(toondb.Tool{
+    Name:        "search_code",
+    Description: "Search codebase",
+    Category:    toondb.CategoryCode,
+})
+
+// Invoke with automatic routing
+result := dispatcher.Invoke("search_code", map[string]any{"query": "auth"},
+    toondb.WithSessionID("sess_001"))
+fmt.Printf("Routed to: %s, Success: %v\n", result.AgentID, result.Success)
+```
+
 ### 🎯 Namespace Isolation
 Logical database namespaces for true multi-tenancy without key prefixing:
 
@@ -125,6 +193,60 @@ results, _ := collection.ContextQuery(&toondb.ContextConfig{
 })
 
 // Results fit within 4000 tokens, deduplicated for relevance
+```
+
+### 🕸️ Graph Overlay
+Lightweight graph layer for agent memory relationships:
+
+```go
+db, _ := toondb.Open("./agent_memory")
+graph := toondb.NewGraphOverlay(db, "agent_001")
+
+// Create nodes
+graph.AddNode("user_1", "User", map[string]interface{}{"name": "Alice"})
+graph.AddNode("conv_1", "Conversation", map[string]interface{}{"title": "Planning"})
+graph.AddNode("msg_1", "Message", map[string]interface{}{"content": "Let's start"})
+
+// Create edges
+graph.AddEdge("user_1", "STARTED", "conv_1", nil)
+graph.AddEdge("conv_1", "CONTAINS", "msg_1", nil)
+graph.AddEdge("user_1", "SENT", "msg_1", nil)
+
+// Traverse graph
+reachable, _ := graph.BFS("user_1", 2, nil, nil)
+// ["user_1", "conv_1", "msg_1"]
+
+// Find shortest path
+path, _ := graph.ShortestPath("user_1", "msg_1", 10, nil)
+// ["user_1", "conv_1", "msg_1"]
+
+// Get neighbors
+neighbors, _ := graph.GetNeighbors("user_1", nil, toondb.EdgeOutgoing)
+for _, n := range neighbors {
+    fmt.Printf("%s via %s\n", n.NodeID, n.Edge.EdgeType)
+}
+```
+
+### 🔍 Token-Aware Context Query Builder
+Build context for LLM prompts with token budgeting:
+
+```go
+query := toondb.NewContextQuery(db, "documents").
+    AddVectorQuery(embedding, 0.7).
+    AddKeywordQuery("machine learning", 0.3).
+    WithTokenBudget(4000).
+    WithMinRelevance(0.5).
+    WithDeduplication(toondb.DeduplicationSemantic, 0.9)
+
+result, _ := query.Execute()
+
+// Format for LLM prompt
+context := result.AsText("\n\n---\n\n")
+prompt := context + "\n\nQuestion: " + userQuestion
+
+// Metrics
+fmt.Printf("Tokens used: %d/%d\n", result.TotalTokens, result.BudgetTokens)
+fmt.Printf("Chunks: %d, Dropped: %d\n", len(result.Chunks), result.DroppedCount)
 ```
 
 ## CLI Tools

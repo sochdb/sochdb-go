@@ -20,6 +20,12 @@ func NewSQLEngine(client *IPCClient) *SQLEngine {
 	return &SQLEngine{client: client}
 }
 
+// IndexInfo represents metadata about a secondary index
+type IndexInfo struct {
+	Column string `json:"column"`
+	Table  string `json:"table"`
+}
+
 // Column represents a table column definition
 type Column struct {
 	Name       string      `json:"name"`
@@ -41,6 +47,7 @@ const (
 	sqlTablePrefix  = "_sql/tables/"
 	sqlSchemaSuffix = "/schema"
 	sqlRowsPrefix   = "/rows/"
+	sqlIndexPrefix  = "/indexes/"
 )
 
 // Execute executes a SQL query
@@ -50,8 +57,12 @@ func (e *SQLEngine) Execute(sql string) (*SQLQueryResult, error) {
 
 	if strings.HasPrefix(upper, "CREATE TABLE") {
 		return e.executeCreateTable(sql)
+	} else if strings.HasPrefix(upper, "CREATE INDEX") {
+		return e.executeCreateIndex(sql)
 	} else if strings.HasPrefix(upper, "DROP TABLE") {
 		return e.executeDropTable(sql)
+	} else if strings.HasPrefix(upper, "DROP INDEX") {
+		return e.executeDropIndex(sql)
 	} else if strings.HasPrefix(upper, "INSERT") {
 		return e.executeInsert(sql)
 	} else if strings.HasPrefix(upper, "SELECT") {
@@ -77,6 +88,22 @@ func (e *SQLEngine) rowPrefix(table string) []byte {
 	return []byte(sqlTablePrefix + table + sqlRowsPrefix)
 }
 
+func (e *SQLEngine) indexMetaKey(table, indexName string) []byte {
+	return []byte(sqlTablePrefix + table + sqlIndexPrefix + indexName + "/meta")
+}
+
+func (e *SQLEngine) indexPrefix(table, indexName string) []byte {
+	return []byte(sqlTablePrefix + table + sqlIndexPrefix + indexName + "/")
+}
+
+func (e *SQLEngine) indexKey(table, indexName, columnValue, rowID string) []byte {
+	return []byte(sqlTablePrefix + table + sqlIndexPrefix + indexName + "/" + columnValue + "/" + rowID)
+}
+
+func (e *SQLEngine) indexValuePrefix(table, indexName, columnValue string) []byte {
+	return []byte(sqlTablePrefix + table + sqlIndexPrefix + indexName + "/" + columnValue + "/")
+}
+
 func (e *SQLEngine) getSchema(table string) (*TableSchema, error) {
 	data, err := e.client.Get(e.schemaKey(table))
 	if err != nil || data == nil {
@@ -89,6 +116,97 @@ func (e *SQLEngine) getSchema(table string) (*TableSchema, error) {
 	}
 
 	return &schema, nil
+}
+
+func (e *SQLEngine) getIndexes(table string) (map[string]string, error) {
+	// Returns map of index_name -> column_name
+	indexes := make(map[string]string)
+	prefix := sqlTablePrefix + table + sqlIndexPrefix
+
+	// Scan for all index metadata keys
+	pairs, err := e.client.Scan(prefix)
+	if err != nil {
+		return indexes, err
+	}
+
+	for _, pair := range pairs {
+		keyStr := string(pair.Key)
+		if strings.HasSuffix(keyStr, "/meta") {
+			var info IndexInfo
+			if err := json.Unmarshal(pair.Value, &info); err == nil {
+				// Extract index name from key
+				parts := strings.Split(keyStr, "/")
+				if len(parts) >= 5 {
+					indexName := parts[len(parts)-2]
+					indexes[indexName] = info.Column
+				}
+			}
+		}
+	}
+
+	return indexes, nil
+}
+
+func (e *SQLEngine) hasIndexForColumn(table, column string) (bool, string) {
+	indexes, _ := e.getIndexes(table)
+	for indexName, indexCol := range indexes {
+		if indexCol == column {
+			return true, indexName
+		}
+	}
+	return false, ""
+}
+
+func (e *SQLEngine) lookupByIndex(table, indexName, value string) ([]string, error) {
+	prefix := string(e.indexValuePrefix(table, indexName, value))
+	pairs, err := e.client.Scan(prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	var rowIDs []string
+	for _, pair := range pairs {
+		rowIDs = append(rowIDs, string(pair.Value))
+	}
+	return rowIDs, nil
+}
+
+func (e *SQLEngine) updateIndex(table, indexName, column string, oldRow, newRow map[string]interface{}, rowID string) error {
+	oldVal := oldRow[column]
+	newVal := newRow[column]
+
+	if oldVal == newVal {
+		return nil
+	}
+
+	// Remove old index entry
+	if oldVal != nil {
+		oldKey := e.indexKey(table, indexName, fmt.Sprintf("%v", oldVal), rowID)
+		if err := e.client.Delete(oldKey); err != nil {
+			return err
+		}
+	}
+
+	// Add new index entry
+	if newVal != nil {
+		newKey := e.indexKey(table, indexName, fmt.Sprintf("%v", newVal), rowID)
+		if err := e.client.Put(newKey, []byte(rowID)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (e *SQLEngine) findIndexedEqualityCondition(table string, conditions []condition) *condition {
+	for _, cond := range conditions {
+		if cond.operator == "=" {
+			if hasIndex, _ := e.hasIndexForColumn(table, cond.column); hasIndex {
+				return &cond
+			}
+		}
+	}
+	return nil
 }
 
 func (e *SQLEngine) executeCreateTable(sql string) (*SQLQueryResult, error) {
@@ -147,6 +265,17 @@ func (e *SQLEngine) executeDropTable(sql string) (*SQLQueryResult, error) {
 
 	tableName := matches[1]
 
+	// Delete all indexes first
+	indexes, _ := e.getIndexes(tableName)
+	for indexName := range indexes {
+		idxPrefix := string(e.indexPrefix(tableName, indexName))
+		idxPairs, _ := e.client.Scan(idxPrefix)
+		for _, pair := range idxPairs {
+			e.client.Delete(pair.Key)
+		}
+		e.client.Delete(e.indexMetaKey(tableName, indexName))
+	}
+
 	// Delete all rows
 	prefix := string(e.rowPrefix(tableName))
 	results, err := e.client.Scan(prefix)
@@ -171,6 +300,130 @@ func (e *SQLEngine) executeDropTable(sql string) (*SQLQueryResult, error) {
 		Rows:         []map[string]interface{}{},
 		Columns:      []string{},
 		RowsAffected: rowsDeleted,
+	}, nil
+}
+
+func (e *SQLEngine) executeCreateIndex(sql string) (*SQLQueryResult, error) {
+	// Parse: CREATE INDEX idx_name ON table_name(column_name)
+	re := regexp.MustCompile(`(?i)CREATE\s+INDEX\s+(\w+)\s+ON\s+(\w+)\s*\(\s*(\w+)\s*\)`)
+	matches := re.FindStringSubmatch(sql)
+	if matches == nil {
+		return nil, fmt.Errorf("invalid CREATE INDEX syntax: %s", sql)
+	}
+
+	indexName := matches[1]
+	tableName := matches[2]
+	columnName := matches[3]
+
+	// Check table exists
+	schema, err := e.getSchema(tableName)
+	if err != nil {
+		return nil, err
+	}
+	if schema == nil {
+		return nil, fmt.Errorf("table '%s' does not exist", tableName)
+	}
+
+	// Check column exists
+	columnExists := false
+	for _, col := range schema.Columns {
+		if col.Name == columnName {
+			columnExists = true
+			break
+		}
+	}
+	if !columnExists {
+		return nil, fmt.Errorf("column '%s' does not exist in table '%s'", columnName, tableName)
+	}
+
+	// Check if index already exists
+	metaKey := e.indexMetaKey(tableName, indexName)
+	existing, _ := e.client.Get(metaKey)
+	if existing != nil {
+		return nil, fmt.Errorf("index '%s' already exists on table '%s'", indexName, tableName)
+	}
+
+	// Store index metadata
+	meta := IndexInfo{
+		Column: columnName,
+		Table:  tableName,
+	}
+	metaData, err := json.Marshal(meta)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal index metadata: %w", err)
+	}
+	if err := e.client.Put(metaKey, metaData); err != nil {
+		return nil, fmt.Errorf("failed to store index metadata: %w", err)
+	}
+
+	// Build index from existing rows
+	prefix := string(e.rowPrefix(tableName))
+	pairs, err := e.client.Scan(prefix)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan rows: %w", err)
+	}
+
+	indexedCount := 0
+	for _, pair := range pairs {
+		var row map[string]interface{}
+		if err := json.Unmarshal(pair.Value, &row); err != nil {
+			continue
+		}
+
+		rowID, ok := row["_id"].(string)
+		if !ok {
+			continue
+		}
+
+		colValue := row[columnName]
+		if colValue != nil {
+			idxKey := e.indexKey(tableName, indexName, fmt.Sprintf("%v", colValue), rowID)
+			if err := e.client.Put(idxKey, []byte(rowID)); err != nil {
+				return nil, fmt.Errorf("failed to create index entry: %w", err)
+			}
+			indexedCount++
+		}
+	}
+
+	return &SQLQueryResult{
+		Rows:         []map[string]interface{}{},
+		Columns:      []string{},
+		RowsAffected: indexedCount,
+	}, nil
+}
+
+func (e *SQLEngine) executeDropIndex(sql string) (*SQLQueryResult, error) {
+	// Parse: DROP INDEX idx_name ON table_name
+	re := regexp.MustCompile(`(?i)DROP\s+INDEX\s+(\w+)\s+ON\s+(\w+)`)
+	matches := re.FindStringSubmatch(sql)
+	if matches == nil {
+		return nil, fmt.Errorf("invalid DROP INDEX syntax: %s", sql)
+	}
+
+	indexName := matches[1]
+	tableName := matches[2]
+
+	// Delete all index entries
+	idxPrefix := string(e.indexPrefix(tableName, indexName))
+	pairs, _ := e.client.Scan(idxPrefix)
+
+	deleted := 0
+	for _, pair := range pairs {
+		if err := e.client.Delete(pair.Key); err != nil {
+			return nil, fmt.Errorf("failed to delete index entry: %w", err)
+		}
+		deleted++
+	}
+
+	// Delete index metadata
+	if err := e.client.Delete(e.indexMetaKey(tableName, indexName)); err != nil {
+		return nil, fmt.Errorf("failed to delete index metadata: %w", err)
+	}
+
+	return &SQLQueryResult{
+		Rows:         []map[string]interface{}{},
+		Columns:      []string{},
+		RowsAffected: deleted,
 	}, nil
 }
 
@@ -249,6 +502,15 @@ func (e *SQLEngine) executeInsert(sql string) (*SQLQueryResult, error) {
 
 	if err := e.client.Put(e.rowKey(tableName, rowID), rowJSON); err != nil {
 		return nil, fmt.Errorf("failed to store row: %w", err)
+	}
+
+	// Maintain indexes
+	indexes, _ := e.getIndexes(tableName)
+	for indexName, indexCol := range indexes {
+		if colValue, ok := row[indexCol]; ok && colValue != nil {
+			idxKey := e.indexKey(tableName, indexName, fmt.Sprintf("%v", colValue), rowID)
+			e.client.Put(idxKey, []byte(rowID))
+		}
 	}
 
 	return &SQLQueryResult{
@@ -395,38 +657,106 @@ func (e *SQLEngine) executeUpdate(sql string) (*SQLQueryResult, error) {
 		conditions = parseWhere(whereClause)
 	}
 
-	// Scan all rows
-	prefix := string(e.rowPrefix(tableName))
-	results, err := e.client.Scan(prefix)
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan rows: %w", err)
-	}
-
+	indexes, _ := e.getIndexes(tableName)
 	rowsAffected := 0
-	for _, result := range results {
-		var row map[string]interface{}
-		if err := json.Unmarshal(result.Value, &row); err != nil {
-			continue
+
+	// Try index-accelerated path
+	indexedCond := e.findIndexedEqualityCondition(tableName, conditions)
+
+	if indexedCond != nil {
+		// Index-accelerated UPDATE
+		hasIndex, indexName := e.hasIndexForColumn(tableName, indexedCond.column)
+		if hasIndex {
+			rowIDs, err := e.lookupByIndex(tableName, indexName, fmt.Sprintf("%v", indexedCond.value))
+			if err == nil {
+				for _, rowID := range rowIDs {
+					key := e.rowKey(tableName, rowID)
+					value, err := e.client.Get(key)
+					if err != nil || value == nil {
+						continue
+					}
+
+					var oldRow map[string]interface{}
+					if err := json.Unmarshal(value, &oldRow); err != nil {
+						continue
+					}
+
+					// Apply all WHERE conditions (not just the indexed one)
+					if !matchesConditions(oldRow, conditions) {
+						continue
+					}
+
+					// Apply updates
+					newRow := make(map[string]interface{})
+					for k, v := range oldRow {
+						newRow[k] = v
+					}
+					for col, val := range updates {
+						newRow[col] = val
+					}
+
+					rowID := fmt.Sprintf("%v", oldRow["_id"])
+
+					// Update indexes for changed columns
+					for idxName, idxCol := range indexes {
+						if _, updated := updates[idxCol]; updated {
+							e.updateIndex(tableName, idxName, idxCol, oldRow, newRow, rowID)
+						}
+					}
+
+					// Save updated row
+					rowJSON, _ := json.Marshal(newRow)
+					e.client.Put(key, rowJSON)
+					rowsAffected++
+				}
+			}
+		}
+	} else {
+		// Fallback: full table scan
+		prefix := string(e.rowPrefix(tableName))
+		results, err := e.client.Scan(prefix)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan rows: %w", err)
 		}
 
-		// Apply WHERE conditions
-		if matchesConditions(row, conditions) {
-			// Apply updates
-			for col, val := range updates {
-				row[col] = val
-			}
-
-			// Save updated row
-			rowJSON, err := json.Marshal(row)
-			if err != nil {
+		for _, result := range results {
+			var oldRow map[string]interface{}
+			if err := json.Unmarshal(result.Value, &oldRow); err != nil {
 				continue
 			}
 
-			if err := e.client.Put(result.Key, rowJSON); err != nil {
-				continue
-			}
+			// Apply WHERE conditions
+			if matchesConditions(oldRow, conditions) {
+				// Apply updates
+				newRow := make(map[string]interface{})
+				for k, v := range oldRow {
+					newRow[k] = v
+				}
+				for col, val := range updates {
+					newRow[col] = val
+				}
 
-			rowsAffected++
+				rowID := fmt.Sprintf("%v", oldRow["_id"])
+
+				// Update indexes for changed columns
+				for idxName, idxCol := range indexes {
+					if _, updated := updates[idxCol]; updated {
+						e.updateIndex(tableName, idxName, idxCol, oldRow, newRow, rowID)
+					}
+				}
+
+				// Save updated row
+				rowJSON, err := json.Marshal(newRow)
+				if err != nil {
+					continue
+				}
+
+				if err := e.client.Put(result.Key, rowJSON); err != nil {
+					continue
+				}
+
+				rowsAffected++
+			}
 		}
 	}
 
@@ -462,23 +792,97 @@ func (e *SQLEngine) executeDelete(sql string) (*SQLQueryResult, error) {
 		conditions = parseWhere(whereClause)
 	}
 
-	// Scan all rows
-	prefix := string(e.rowPrefix(tableName))
-	results, err := e.client.Scan(prefix)
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan rows: %w", err)
-	}
-
+	indexes, _ := e.getIndexes(tableName)
 	rowsAffected := 0
-	for _, result := range results {
-		var row map[string]interface{}
-		if err := json.Unmarshal(result.Value, &row); err != nil {
-			continue
+
+	// Try index-accelerated path
+	indexedCond := e.findIndexedEqualityCondition(tableName, conditions)
+
+	if indexedCond != nil {
+		// Index-accelerated DELETE
+		hasIndex, indexName := e.hasIndexForColumn(tableName, indexedCond.column)
+		if hasIndex {
+			rowIDs, err := e.lookupByIndex(tableName, indexName, fmt.Sprintf("%v", indexedCond.value))
+			if err == nil {
+				var keysToDelete [][]byte
+				var rowsToDelete []map[string]interface{}
+				var rowIDsToDelete []string
+
+				for _, rowID := range rowIDs {
+					key := e.rowKey(tableName, rowID)
+					value, err := e.client.Get(key)
+					if err != nil || value == nil {
+						continue
+					}
+
+					var row map[string]interface{}
+					if err := json.Unmarshal(value, &row); err != nil {
+						continue
+					}
+
+					// Apply all WHERE conditions (not just the indexed one)
+					if matchesConditions(row, conditions) {
+						keysToDelete = append(keysToDelete, key)
+						rowsToDelete = append(rowsToDelete, row)
+						rowIDsToDelete = append(rowIDsToDelete, rowID)
+					}
+				}
+
+				// Delete rows and update indexes
+				for i, key := range keysToDelete {
+					row := rowsToDelete[i]
+					rowID := rowIDsToDelete[i]
+
+					// Remove from all indexes
+					for idxName, idxCol := range indexes {
+						emptyRow := make(map[string]interface{})
+						e.updateIndex(tableName, idxName, idxCol, row, emptyRow, rowID)
+					}
+
+					e.client.Delete(key)
+					rowsAffected++
+				}
+			}
+		}
+	} else {
+		// Fallback: full table scan
+		prefix := string(e.rowPrefix(tableName))
+		results, err := e.client.Scan(prefix)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan rows: %w", err)
 		}
 
-		// Apply WHERE conditions
-		if matchesConditions(row, conditions) {
-			if err := e.client.Delete(result.Key); err != nil {
+		var keysToDelete [][]byte
+		var rowsToDelete []map[string]interface{}
+		var rowIDsToDelete []string
+
+		for _, result := range results {
+			var row map[string]interface{}
+			if err := json.Unmarshal(result.Value, &row); err != nil {
+				continue
+			}
+
+			// Apply WHERE conditions
+			if matchesConditions(row, conditions) {
+				rowID := fmt.Sprintf("%v", row["_id"])
+				keysToDelete = append(keysToDelete, result.Key)
+				rowsToDelete = append(rowsToDelete, row)
+				rowIDsToDelete = append(rowIDsToDelete, rowID)
+			}
+		}
+
+		// Delete collected rows and update indexes
+		for i, key := range keysToDelete {
+			row := rowsToDelete[i]
+			rowID := rowIDsToDelete[i]
+
+			// Remove from all indexes
+			for idxName, idxCol := range indexes {
+				emptyRow := make(map[string]interface{})
+				e.updateIndex(tableName, idxName, idxCol, row, emptyRow, rowID)
+			}
+
+			if err := e.client.Delete(key); err != nil {
 				continue
 			}
 			rowsAffected++
