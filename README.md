@@ -608,32 +608,6 @@ err := client.CreateCollectionWithContext(ctx, "test", options)
 
 ---
 
-## Server Requirements
-
-### Starting the Server
-
-```bash
-# Development mode
-cd toondb
-cargo run -p toondb-grpc
-
-# Production mode (optimized)
-cargo build --release -p toondb-grpc
-./target/release/toondb-grpc --host 0.0.0.0 --port 50051
-```
-
-### Server Configuration
-
-Server runs all business logic including:
-- ✅ HNSW vector indexing (15x faster than ChromaDB)
-- ✅ SQL query parsing and execution
-- ✅ Graph traversal algorithms
-- ✅ Policy evaluation
-- ✅ Multi-tenant namespace isolation
-- ✅ Collection management
-
----
-
 ## Performance
 
 **Network Overhead:**
@@ -648,54 +622,6 @@ Server runs all business logic including:
 - Use **batch operations** for high throughput
 - Use **IPC** for same-machine communication
 - Use **gRPC** for distributed systems
-
----
-
-## Comparison with Old Architecture
-
-| Feature | Old (Fat Client) | New (Thin Client) |
-|---------|------------------|-------------------|
-| SDK Size | 4,302 LOC | 1,144 LOC (-73%) |
-| Business Logic | In SDK (Go) | In Server (Rust) |
-| Bug Fixes | Per language | Once in server |
-| Semantic Drift | High risk | Zero risk |
-| Performance | FFI overhead | Network call |
-| Maintenance | 3x effort | 1x effort |
-
----
-
-## Migration Guide
-
-### From Fat Client (v0.3.3 or earlier)
-
-**Old Code:**
-```go
-import "github.com/toondb/toondb-go"
-
-db := toondb.Open("./data")
-defer db.Close()
-
-tx := db.Begin()
-tx.Put([]byte("key"), []byte("value"))
-tx.Commit()
-```
-
-**New Code:**
-```go
-import "github.com/toondb/toondb-go"
-
-client := toondb.NewGrpcClient("localhost:50051")
-defer client.Close()
-
-err := client.PutKv("key", []byte("value"))
-```
-
-**Key Changes:**
-1. Replace `toondb.Open()` → `toondb.NewGrpcClient()`
-2. Start the gRPC server first
-3. All operations now go through client methods
-4. No more FFI/native bindings needed
-5. Transactions are managed server-side
 
 ---
 
@@ -787,11 +713,22 @@ A: Yes. Deploy one or more ToonDB servers and connect clients via gRPC. The serv
 
 ---
 
-## Support
+## Getting Help
 
-- **GitHub**: https://github.com/sushanthpy/toondb
-- **Issues**: https://github.com/sushanthpy/toondb/issues
-- **Docs**: https://toondb.dev
+- **Documentation**: https://toondb.dev
+- **GitHub Issues**: https://github.com/sushanthpy/toondb/issues
+- **Examples**: See [example/](example/) directory
+
+---
+
+## Contributing
+
+Interested in contributing? See [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Development environment setup
+- Building from source
+- Running tests
+- Code style guidelines
+- Pull request process
 
 ---
 
