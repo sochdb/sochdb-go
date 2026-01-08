@@ -328,11 +328,8 @@ func (c *IPCClient) parseErrorPayload(payload []byte) error {
 	if len(msg) > 0 {
 		switch {
 		case contains(msg, "permission") || contains(msg, "access denied"):
-			trackError("permission_error", "parseErrorPayload")
 		case contains(msg, "timeout") || contains(msg, "deadline"):
-			trackError("timeout_error", "parseErrorPayload")
 		default:
-			trackError("query_error", "parseErrorPayload")
 		}
 	}
 
@@ -472,9 +469,7 @@ func (c *IPCClient) readQueryResponse() ([]KeyValue, error) {
 	if err != nil {
 		// Track connection/timeout errors
 		if isTimeoutError(err) {
-			trackError("timeout_error", "readQueryResponse")
 		} else {
-			trackError("connection_error", "readQueryResponse")
 		}
 		return nil, err
 	}
