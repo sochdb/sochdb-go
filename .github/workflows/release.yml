@@ -194,32 +194,6 @@ jobs:
           See the [main ToonDB changelog](https://github.com/toondb/toondb/blob/main/CHANGELOG.md) for details.
           EOF
 
-      - name: Commit binaries to release branch (optional)
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Add bin directory (use -f to force in case of .gitignore)
-          git add -f bin/
-          git add toondb.go
-          
-          # Check if there are changes to commit
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-          else
-            # Commit to current branch (release/X.Y.Z) instead of main
-            git commit -m "chore: bundle binaries for v${{ steps.version.outputs.version }}"
-            
-            # Only push if we're on a branch (not detached HEAD from tag push)
-            BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
-            if [ -n "$BRANCH" ]; then
-              echo "Pushing binaries to branch: $BRANCH"
-              git push origin HEAD
-            else
-              echo "Skipping push - detached HEAD state"
-            fi
-          fi
-
       - name: Create or update tag
         run: |
           TAG="${{ steps.version.outputs.tag }}"
