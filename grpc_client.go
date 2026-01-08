@@ -233,3 +233,35 @@ func (c *GrpcClient) GrpcDelete(key []byte, namespace string) error {
 	// TODO: Call KvService.Delete
 	return fmt.Errorf("gRPC proto files not yet generated")
 }
+
+// ===========================================================================
+// Convenience Methods (Simpler API)
+// ===========================================================================
+
+// PutKv stores a key-value pair in the specified namespace.
+func (c *GrpcClient) PutKv(ctx context.Context, namespace, key string, value []byte) error {
+	return c.GrpcPut([]byte(key), value, namespace, 0)
+}
+
+// GetKv retrieves a value by key from the specified namespace.
+func (c *GrpcClient) GetKv(ctx context.Context, namespace, key string) ([]byte, error) {
+	value, found, err := c.GrpcGet([]byte(key), namespace)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, fmt.Errorf("key not found: %s", key)
+	}
+	return value, nil
+}
+
+// AddEdge adds an edge to the graph (convenience wrapper).
+func (c *GrpcClient) AddEdge(ctx context.Context, namespace string, edge GrpcGraphEdge) error {
+	return c.AddGraphEdge(edge.FromID, edge.EdgeType, edge.ToID, edge.Properties, namespace)
+}
+
+// QueryGraph queries the graph for edges (convenience wrapper).
+func (c *GrpcClient) QueryGraph(ctx context.Context, namespace, fromID, edgeType string, limit int) ([]GrpcGraphEdge, error) {
+	// For now, return placeholder
+	return nil, fmt.Errorf("gRPC proto files not yet generated")
+}

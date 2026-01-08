@@ -187,3 +187,14 @@ func (FormatCapabilities) ContextToWire(ctx ContextFormat) *WireFormat {
 func (FormatCapabilities) SupportsRoundTrip(fmt WireFormat) bool {
 	return fmt == WireFormatToon || fmt == WireFormatJSON
 }
+
+// SupportsRoundTripConversion checks if conversion between wire and context formats is lossless.
+func (FormatCapabilities) SupportsRoundTripConversion(wire WireFormat, ctx ContextFormat) bool {
+	return (wire == WireFormatToon && ctx == ContextFormatToon) ||
+		(wire == WireFormatJSON && ctx == ContextFormatJSON)
+}
+
+// NewFormatCapabilities creates a new FormatCapabilities instance.
+func NewFormatCapabilities() FormatCapabilities {
+	return FormatCapabilities{}
+}
