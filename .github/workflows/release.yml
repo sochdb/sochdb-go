@@ -112,13 +112,13 @@ jobs:
           rm -f windows-amd64.zip
           ls -la bin/windows-amd64/
 
-      - name: Update version in database.go
+      - name: Update version in toondb.go
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          if grep -q 'const Version' database.go; then
-            sed -i "s/const Version = \".*\"/const Version = \"$VERSION\"/" database.go
+          if grep -q 'const Version' toondb.go; then
+            sed -i "s/const Version = \".*\"/const Version = \"$VERSION\"/" toondb.go
           fi
-          cat database.go | grep -A1 "Version" || true
+          cat toondb.go | grep -A1 "Version" || true
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -201,7 +201,7 @@ jobs:
           
           # Add bin directory (use -f to force in case of .gitignore)
           git add -f bin/
-          git add database.go
+          git add toondb.go
           
           # Check if there are changes to commit
           if git diff --cached --quiet; then
