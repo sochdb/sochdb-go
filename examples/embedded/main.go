@@ -14,8 +14,8 @@ func main() {
 	// Clean up old database
 	os.RemoveAll(dbPath)
 
-	fmt.Println("=== ToonDB Go SDK - Embedded Mode (FFI) ===\n")
-
+	fmt.Println("=== ToonDB Go SDK - Embedded Mode (FFI) ===")
+	fmt.Println()
 	// Open database
 	fmt.Println("Opening database...")
 	db, err := embedded.Open(dbPath)
