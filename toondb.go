@@ -45,4 +45,4 @@
 package toondb
 
 // Version is the current SDK version.
-const Version = "0.3.4"
+const Version = "0.3.6"
