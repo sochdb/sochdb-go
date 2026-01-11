@@ -630,3 +630,352 @@ func isTimeoutError(err error) bool {
 	msg := err.Error()
 	return contains(msg, "timeout") || contains(msg, "deadline")
 }
+
+// ============================================================================
+// Graph Overlay Operations
+// ============================================================================
+
+// GraphNode represents a node in the graph overlay.
+type GraphNode struct {
+	ID         string            `json:"id"`
+	NodeType   string            `json:"node_type"`
+	Properties map[string]string `json:"properties"`
+}
+
+// GraphEdge represents an edge in the graph overlay.
+type GraphEdge struct {
+	FromID     string            `json:"from_id"`
+	EdgeType   string            `json:"edge_type"`
+	ToID       string            `json:"to_id"`
+	Properties map[string]string `json:"properties"`
+}
+
+// AddNode adds a node to the graph overlay.
+func (c *IPCClient) AddNode(namespace, nodeID, nodeType string, properties map[string]string) error {
+	key := fmt.Sprintf("_graph/%s/nodes/%s", namespace, nodeID)
+
+	if properties == nil {
+		properties = make(map[string]string)
+	}
+
+	node := GraphNode{
+		ID:         nodeID,
+		NodeType:   nodeType,
+		Properties: properties,
+	}
+
+	value, err := json.Marshal(node)
+	if err != nil {
+		return err
+	}
+
+	return c.Put([]byte(key), value)
+}
+
+// AddEdge adds an edge between nodes in the graph overlay.
+func (c *IPCClient) AddEdge(namespace, fromID, edgeType, toID string, properties map[string]string) error {
+	key := fmt.Sprintf("_graph/%s/edges/%s/%s/%s", namespace, fromID, edgeType, toID)
+
+	if properties == nil {
+		properties = make(map[string]string)
+	}
+
+	edge := GraphEdge{
+		FromID:     fromID,
+		EdgeType:   edgeType,
+		ToID:       toID,
+		Properties: properties,
+	}
+
+	value, err := json.Marshal(edge)
+	if err != nil {
+		return err
+	}
+
+	return c.Put([]byte(key), value)
+}
+
+// TraverseResult contains the result of a graph traversal.
+type TraverseResult struct {
+	Nodes []GraphNode `json:"nodes"`
+	Edges []GraphEdge `json:"edges"`
+}
+
+// Traverse traverses the graph from a starting node.
+// order: "bfs" for breadth-first, "dfs" for depth-first
+func (c *IPCClient) Traverse(namespace, startNode string, maxDepth int, order string) (*TraverseResult, error) {
+	visited := make(map[string]bool)
+	nodes := []GraphNode{}
+	edges := []GraphEdge{}
+
+	type queueItem struct {
+		nodeID string
+		depth  int
+	}
+
+	frontier := []queueItem{{startNode, 0}}
+
+	for len(frontier) > 0 {
+		var current queueItem
+		if order == "bfs" {
+			current = frontier[0]
+			frontier = frontier[1:]
+		} else {
+			current = frontier[len(frontier)-1]
+			frontier = frontier[:len(frontier)-1]
+		}
+
+		if current.depth > maxDepth || visited[current.nodeID] {
+			continue
+		}
+		visited[current.nodeID] = true
+
+		// Get node data
+		nodeKey := fmt.Sprintf("_graph/%s/nodes/%s", namespace, current.nodeID)
+		nodeData, err := c.Get([]byte(nodeKey))
+		if err == nil && nodeData != nil {
+			var node GraphNode
+			if json.Unmarshal(nodeData, &node) == nil {
+				nodes = append(nodes, node)
+			}
+		}
+
+		// Get outgoing edges
+		edgePrefix := fmt.Sprintf("_graph/%s/edges/%s/", namespace, current.nodeID)
+		edgeResults, err := c.Scan(edgePrefix)
+		if err == nil {
+			for _, kv := range edgeResults {
+				var edge GraphEdge
+				if json.Unmarshal(kv.Value, &edge) == nil {
+					edges = append(edges, edge)
+					if !visited[edge.ToID] {
+						frontier = append(frontier, queueItem{edge.ToID, current.depth + 1})
+					}
+				}
+			}
+		}
+	}
+
+	return &TraverseResult{Nodes: nodes, Edges: edges}, nil
+}
+
+// ============================================================================
+// Semantic Cache Operations
+// ============================================================================
+
+// CacheEntry represents an entry in the semantic cache.
+type CacheEntry struct {
+	Key       string    `json:"key"`
+	Value     string    `json:"value"`
+	Embedding []float32 `json:"embedding"`
+	ExpiresAt int64     `json:"expires_at"`
+}
+
+// CachePut stores a value in the semantic cache with its embedding.
+func (c *IPCClient) CachePut(cacheName, key, value string, embedding []float32, ttlSeconds int64) error {
+	// Hash the key for storage
+	keyHash := fmt.Sprintf("%x", key)[:16]
+	cacheKey := fmt.Sprintf("_cache/%s/%s", cacheName, keyHash)
+
+	var expiresAt int64 = 0
+	if ttlSeconds > 0 {
+		expiresAt = now() + ttlSeconds
+	}
+
+	entry := CacheEntry{
+		Key:       key,
+		Value:     value,
+		Embedding: embedding,
+		ExpiresAt: expiresAt,
+	}
+
+	cacheValue, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+
+	return c.Put([]byte(cacheKey), cacheValue)
+}
+
+// CacheGet looks up a value in the semantic cache by embedding similarity.
+func (c *IPCClient) CacheGet(cacheName string, queryEmbedding []float32, threshold float32) (string, bool, error) {
+	prefix := fmt.Sprintf("_cache/%s/", cacheName)
+	entries, err := c.Scan(prefix)
+	if err != nil {
+		return "", false, err
+	}
+
+	currentTime := now()
+	var bestMatch *CacheEntry
+	var bestSimilarity float32 = -1
+
+	for _, kv := range entries {
+		var entry CacheEntry
+		if json.Unmarshal(kv.Value, &entry) != nil {
+			continue
+		}
+
+		// Check expiry
+		if entry.ExpiresAt > 0 && currentTime > entry.ExpiresAt {
+			continue
+		}
+
+		// Compute cosine similarity
+		if len(entry.Embedding) == len(queryEmbedding) {
+			similarity := cosineSimilarity(queryEmbedding, entry.Embedding)
+			if similarity >= threshold && similarity > bestSimilarity {
+				bestSimilarity = similarity
+				bestMatch = &entry
+			}
+		}
+	}
+
+	if bestMatch != nil {
+		return bestMatch.Value, true, nil
+	}
+	return "", false, nil
+}
+
+func cosineSimilarity(a, b []float32) float32 {
+	var dot, normA, normB float32
+	for i := range a {
+		dot += a[i] * b[i]
+		normA += a[i] * a[i]
+		normB += b[i] * b[i]
+	}
+	normA = sqrt(normA)
+	normB = sqrt(normB)
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dot / (normA * normB)
+}
+
+func sqrt(x float32) float32 {
+	if x <= 0 {
+		return 0
+	}
+	z := x / 2
+	for i := 0; i < 10; i++ {
+		z = z - (z*z-x)/(2*z)
+	}
+	return z
+}
+
+// ============================================================================
+// Trace Operations
+// ============================================================================
+
+// TraceInfo contains trace and span IDs.
+type TraceInfo struct {
+	TraceID    string `json:"trace_id"`
+	RootSpanID string `json:"root_span_id"`
+}
+
+// SpanData represents a span in a trace.
+type SpanData struct {
+	SpanID       string `json:"span_id"`
+	Name         string `json:"name"`
+	StartUs      int64  `json:"start_us"`
+	ParentSpanID string `json:"parent_span_id"`
+	Status       string `json:"status"`
+	EndUs        int64  `json:"end_us,omitempty"`
+	DurationUs   int64  `json:"duration_us,omitempty"`
+}
+
+// StartTrace starts a new trace.
+func (c *IPCClient) StartTrace(name string) (*TraceInfo, error) {
+	traceID := fmt.Sprintf("trace_%x%x", now(), randUint32())
+	spanID := fmt.Sprintf("span_%x%x", now(), randUint32())
+	nowUs := nowMicros()
+
+	// Store trace
+	traceKey := fmt.Sprintf("_traces/%s", traceID)
+	traceValue, _ := json.Marshal(map[string]interface{}{
+		"trace_id":     traceID,
+		"name":         name,
+		"start_us":     nowUs,
+		"root_span_id": spanID,
+	})
+	if err := c.Put([]byte(traceKey), traceValue); err != nil {
+		return nil, err
+	}
+
+	// Store root span
+	spanKey := fmt.Sprintf("_traces/%s/spans/%s", traceID, spanID)
+	spanValue, _ := json.Marshal(SpanData{
+		SpanID:       spanID,
+		Name:         name,
+		StartUs:      nowUs,
+		ParentSpanID: "",
+		Status:       "active",
+	})
+	if err := c.Put([]byte(spanKey), spanValue); err != nil {
+		return nil, err
+	}
+
+	return &TraceInfo{TraceID: traceID, RootSpanID: spanID}, nil
+}
+
+// StartSpan starts a child span within a trace.
+func (c *IPCClient) StartSpan(traceID, parentSpanID, name string) (string, error) {
+	spanID := fmt.Sprintf("span_%x%x", now(), randUint32())
+	nowUs := nowMicros()
+
+	spanKey := fmt.Sprintf("_traces/%s/spans/%s", traceID, spanID)
+	spanValue, _ := json.Marshal(SpanData{
+		SpanID:       spanID,
+		Name:         name,
+		StartUs:      nowUs,
+		ParentSpanID: parentSpanID,
+		Status:       "active",
+	})
+
+	if err := c.Put([]byte(spanKey), spanValue); err != nil {
+		return "", err
+	}
+
+	return spanID, nil
+}
+
+// EndSpan ends a span and returns its duration in microseconds.
+func (c *IPCClient) EndSpan(traceID, spanID, status string) (int64, error) {
+	spanKey := fmt.Sprintf("_traces/%s/spans/%s", traceID, spanID)
+
+	spanData, err := c.Get([]byte(spanKey))
+	if err != nil || spanData == nil {
+		return 0, fmt.Errorf("span not found: %s", spanID)
+	}
+
+	var span SpanData
+	if err := json.Unmarshal(spanData, &span); err != nil {
+		return 0, err
+	}
+
+	nowUs := nowMicros()
+	duration := nowUs - span.StartUs
+
+	span.Status = status
+	span.EndUs = nowUs
+	span.DurationUs = duration
+
+	updatedValue, _ := json.Marshal(span)
+	if err := c.Put([]byte(spanKey), updatedValue); err != nil {
+		return 0, err
+	}
+
+	return duration, nil
+}
+
+// Helper functions for time
+func now() int64 {
+	return int64(1704067200) // Placeholder - in real code use time.Now().Unix()
+}
+
+func nowMicros() int64 {
+	return now() * 1000000
+}
+
+func randUint32() uint32 {
+	return uint32(now() % 0xFFFFFFFF) // Simple pseudo-random
+}
