@@ -11,7 +11,8 @@ import (
 
 func main() {
 	fmt.Println("Direct PostHog Go Client Test")
-	fmt.Println("==============================\n")
+	fmt.Println("==============================")
+fmt.Println()
 
 	// Create PostHog client directly
 	client, err := posthog.NewWithConfig(
@@ -28,7 +29,8 @@ func main() {
 
 	fmt.Println("✓ PostHog client created")
 	fmt.Println("✓ Endpoint: https://us.i.posthog.com")
-	fmt.Println("✓ API Key: phc_zf0hm6ZmPUJj1pM07Kigqvphh1ClhKX1NahRU4G0bfu\n")
+	fmt.Println("✓ API Key: phc_zf0hm6ZmPUJj1pM07Kigqvphh1ClhKX1NahRU4G0bfu")
+fmt.Println()
 
 	// Send test event
 	fmt.Println("Sending test event...")
@@ -54,7 +56,8 @@ func main() {
 	time.Sleep(500 * time.Millisecond)
 	client.Close()
 
-	fmt.Println("✓ Client closed, events flushed\n")
+	fmt.Println("✓ Client closed, events flushed")
+fmt.Println()
 	fmt.Println("✅ Test complete!")
 	fmt.Println("\nCheck PostHog dashboard:")
 	fmt.Println("  https://us.i.posthog.com")
