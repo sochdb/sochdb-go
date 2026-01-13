@@ -16,10 +16,9 @@
 package embedded
 
 /*
-#cgo pkg-config: libsochdb_storage
-#cgo !pkg-config darwin LDFLAGS: -lsochdb_storage
-#cgo !pkg-config linux LDFLAGS: -lsochdb_storage
-#cgo !pkg-config windows LDFLAGS: -lsochdb_storage
+#cgo LDFLAGS: -lsochdb_storage
+#cgo darwin LDFLAGS: -Wl,-rpath,/usr/local/lib
+#cgo linux LDFLAGS: -Wl,-rpath,/usr/local/lib
 
 #include <stdlib.h>
 #include <stdint.h>

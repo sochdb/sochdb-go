@@ -141,7 +141,8 @@ jobs:
       - name: Verify Go module
         run: |
           go mod tidy
-          go build ./...
+          # Skip embedded package in CI - requires native library
+          go build $(go list ./... | grep -v '/embedded')
 
       - name: Clean up extracted files
         run: |
