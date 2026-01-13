@@ -14,7 +14,7 @@ on:
       - 'v*.*.*'
 
 env:
-  TOONDB_REPO: toondb/toondb
+  SOCHDB_REPO: sochdb/sochdb
 
 jobs:
   release:
@@ -48,90 +48,90 @@ jobs:
 
       - name: Download macOS ARM64 binaries
         run: |
-          ASSET_NAME="toondb-${{ steps.version.outputs.version }}-aarch64-apple-darwin.tar.gz"
-          DOWNLOAD_URL="https://github.com/${{ env.TOONDB_REPO }}/releases/download/${{ steps.version.outputs.tag }}/${ASSET_NAME}"
+          ASSET_NAME="sochdb-${{ steps.version.outputs.version }}-aarch64-apple-darwin.tar.gz"
+          DOWNLOAD_URL="https://github.com/${{ env.SOCHDB_REPO }}/releases/download/${{ steps.version.outputs.tag }}/${ASSET_NAME}"
           echo "Downloading from: $DOWNLOAD_URL"
           
           curl -L -f -o darwin-arm64.tar.gz "$DOWNLOAD_URL"
           tar -xzf darwin-arm64.tar.gz
           
           # Move binaries to bin directory
-          mv toondb-server bin/darwin-arm64/ 2>/dev/null || true
-          mv toondb-grpc-server bin/darwin-arm64/ 2>/dev/null || true
-          mv toondb-bulk bin/darwin-arm64/ 2>/dev/null || true
+          mv sochdb-server bin/darwin-arm64/ 2>/dev/null || true
+          mv sochdb-grpc-server bin/darwin-arm64/ 2>/dev/null || true
+          mv sochdb-bulk bin/darwin-arm64/ 2>/dev/null || true
           
           # Also check if they're in a subdirectory
-          find . -maxdepth 2 -name "toondb-server" -type f -exec mv {} bin/darwin-arm64/ \; 2>/dev/null || true
-          find . -maxdepth 2 -name "toondb-grpc-server" -type f -exec mv {} bin/darwin-arm64/ \; 2>/dev/null || true
-          find . -maxdepth 2 -name "toondb-bulk" -type f -exec mv {} bin/darwin-arm64/ \; 2>/dev/null || true
+          find . -maxdepth 2 -name "sochdb-server" -type f -exec mv {} bin/darwin-arm64/ \; 2>/dev/null || true
+          find . -maxdepth 2 -name "sochdb-grpc-server" -type f -exec mv {} bin/darwin-arm64/ \; 2>/dev/null || true
+          find . -maxdepth 2 -name "sochdb-bulk" -type f -exec mv {} bin/darwin-arm64/ \; 2>/dev/null || true
           # Libraries (for Embedded Mode)
-          find . -maxdepth 2 -name "libtoondb_storage.dylib" -type f -exec mv {} bin/darwin-arm64/ \; 2>/dev/null || true
+          find . -maxdepth 2 -name "libsochdb_storage.dylib" -type f -exec mv {} bin/darwin-arm64/ \; 2>/dev/null || true
           
           rm -f darwin-arm64.tar.gz
           ls -la bin/darwin-arm64/
 
       - name: Download Linux x86_64 binaries
         run: |
-          ASSET_NAME="toondb-${{ steps.version.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz"
-          DOWNLOAD_URL="https://github.com/${{ env.TOONDB_REPO }}/releases/download/${{ steps.version.outputs.tag }}/${ASSET_NAME}"
+          ASSET_NAME="sochdb-${{ steps.version.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz"
+          DOWNLOAD_URL="https://github.com/${{ env.SOCHDB_REPO }}/releases/download/${{ steps.version.outputs.tag }}/${ASSET_NAME}"
           echo "Downloading from: $DOWNLOAD_URL"
           
           curl -L -f -o linux-amd64.tar.gz "$DOWNLOAD_URL"
           tar -xzf linux-amd64.tar.gz
           
           # Setup native libs for CGO (required for go build)
-          mkdir -p ../toondb/target/release
-          find . -name "libtoondb_storage.so" -type f -exec cp {} ../toondb/target/release/ \;
+          mkdir -p ../sochdb/target/release
+          find . -name "libsochdb_storage.so" -type f -exec cp {} ../sochdb/target/release/ \;
           # Also package in release
-          find . -name "libtoondb_storage.so" -type f -exec cp {} bin/linux-amd64/ \;
+          find . -name "libsochdb_storage.so" -type f -exec cp {} bin/linux-amd64/ \;
           
           # Also ensure include dir exists to prevent CFLAGS warning/error
           mkdir -p include
           
           # Move binaries to bin directory
-          mv toondb-server bin/linux-amd64/ 2>/dev/null || true
-          mv toondb-grpc-server bin/linux-amd64/ 2>/dev/null || true
-          mv toondb-bulk bin/linux-amd64/ 2>/dev/null || true
+          mv sochdb-server bin/linux-amd64/ 2>/dev/null || true
+          mv sochdb-grpc-server bin/linux-amd64/ 2>/dev/null || true
+          mv sochdb-bulk bin/linux-amd64/ 2>/dev/null || true
           
           # Also check if they're in a subdirectory
-          find . -maxdepth 2 -name "toondb-server" -type f -exec mv {} bin/linux-amd64/ \; 2>/dev/null || true
-          find . -maxdepth 2 -name "toondb-grpc-server" -type f -exec mv {} bin/linux-amd64/ \; 2>/dev/null || true
-          find . -maxdepth 2 -name "toondb-bulk" -type f -exec mv {} bin/linux-amd64/ \; 2>/dev/null || true
+          find . -maxdepth 2 -name "sochdb-server" -type f -exec mv {} bin/linux-amd64/ \; 2>/dev/null || true
+          find . -maxdepth 2 -name "sochdb-grpc-server" -type f -exec mv {} bin/linux-amd64/ \; 2>/dev/null || true
+          find . -maxdepth 2 -name "sochdb-bulk" -type f -exec mv {} bin/linux-amd64/ \; 2>/dev/null || true
           
           rm -f linux-amd64.tar.gz
           ls -la bin/linux-amd64/
 
       - name: Download Windows x86_64 binaries
         run: |
-          ASSET_NAME="toondb-${{ steps.version.outputs.version }}-x86_64-pc-windows-msvc.zip"
-          DOWNLOAD_URL="https://github.com/${{ env.TOONDB_REPO }}/releases/download/${{ steps.version.outputs.tag }}/${ASSET_NAME}"
+          ASSET_NAME="sochdb-${{ steps.version.outputs.version }}-x86_64-pc-windows-msvc.zip"
+          DOWNLOAD_URL="https://github.com/${{ env.SOCHDB_REPO }}/releases/download/${{ steps.version.outputs.tag }}/${ASSET_NAME}"
           echo "Downloading from: $DOWNLOAD_URL"
           
           curl -L -f -o windows-amd64.zip "$DOWNLOAD_URL"
           unzip -o windows-amd64.zip
           
           # Move binaries to bin directory
-          mv toondb-server.exe bin/windows-amd64/ 2>/dev/null || true
-          mv toondb-grpc-server.exe bin/windows-amd64/ 2>/dev/null || true
-          mv toondb-bulk.exe bin/windows-amd64/ 2>/dev/null || true
+          mv sochdb-server.exe bin/windows-amd64/ 2>/dev/null || true
+          mv sochdb-grpc-server.exe bin/windows-amd64/ 2>/dev/null || true
+          mv sochdb-bulk.exe bin/windows-amd64/ 2>/dev/null || true
           
           # Also check if they're in a subdirectory
-          find . -maxdepth 2 -name "toondb-server.exe" -type f -exec mv {} bin/windows-amd64/ \; 2>/dev/null || true
-          find . -maxdepth 2 -name "toondb-grpc-server.exe" -type f -exec mv {} bin/windows-amd64/ \; 2>/dev/null || true
-          find . -maxdepth 2 -name "toondb-bulk.exe" -type f -exec mv {} bin/windows-amd64/ \; 2>/dev/null || true
+          find . -maxdepth 2 -name "sochdb-server.exe" -type f -exec mv {} bin/windows-amd64/ \; 2>/dev/null || true
+          find . -maxdepth 2 -name "sochdb-grpc-server.exe" -type f -exec mv {} bin/windows-amd64/ \; 2>/dev/null || true
+          find . -maxdepth 2 -name "sochdb-bulk.exe" -type f -exec mv {} bin/windows-amd64/ \; 2>/dev/null || true
           # Libraries (for Embedded Mode)
-          find . -maxdepth 2 -name "toondb_storage.dll" -type f -exec mv {} bin/windows-amd64/ \; 2>/dev/null || true
+          find . -maxdepth 2 -name "sochdb_storage.dll" -type f -exec mv {} bin/windows-amd64/ \; 2>/dev/null || true
           
           rm -f windows-amd64.zip
           ls -la bin/windows-amd64/
 
-      - name: Update version in toondb.go
+      - name: Update version in sochdb.go
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          if grep -q 'const Version' toondb.go; then
-            sed -i "s/const Version = \".*\"/const Version = \"$VERSION\"/" toondb.go
+          if grep -q 'const Version' sochdb.go; then
+            sed -i "s/const Version = \".*\"/const Version = \"$VERSION\"/" sochdb.go
           fi
-          cat toondb.go | grep -A1 "Version" || true
+          cat sochdb.go | grep -A1 "Version" || true
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -155,7 +155,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           
           # Create archive in /tmp to avoid "file changed" error
-          tar -czvf /tmp/toondb-go-${VERSION}.tar.gz \
+          tar -czvf /tmp/sochdb-go-${VERSION}.tar.gz \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='aarch64-apple-darwin' \
@@ -164,44 +164,44 @@ jobs:
             .
           
           # Move to current directory
-          mv /tmp/toondb-go-${VERSION}.tar.gz .
+          mv /tmp/sochdb-go-${VERSION}.tar.gz .
           
           # List contents
           echo "Archive contents:"
-          tar -tzvf toondb-go-${VERSION}.tar.gz | head -50
+          tar -tzvf sochdb-go-${VERSION}.tar.gz | head -50
 
       - name: Generate release notes
         id: notes
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           cat << 'EOF' > release_notes.md
-          ## ToonDB Go SDK v${{ steps.version.outputs.version }}
+          ## SochDB Go SDK v${{ steps.version.outputs.version }}
           
           ### Installation
           
           ```bash
-          go get github.com/toondb/toondb-go@v${{ steps.version.outputs.version }}
+          go get github.com/sochdb/sochdb-go@v${{ steps.version.outputs.version }}
           ```
           
           ### Bundled Binaries
           
-          This release includes pre-built ToonDB server binaries for:
+          This release includes pre-built SochDB server binaries for:
           - **macOS ARM64** (Apple Silicon) - `bin/darwin-arm64/`
           - **Linux x86_64** - `bin/linux-amd64/`
           - **Windows x64** - `bin/windows-amd64/`
           
-          The binaries are automatically extracted and used when you create a new ToonDB instance.
+          The binaries are automatically extracted and used when you create a new SochDB instance.
           
           ### Binary Contents
           
           Each platform includes:
-          - `toondb-server` - Main database server
-          - `toondb-grpc-server` - gRPC server for remote connections
-          - `toondb-bulk` - Bulk import/export utility
+          - `sochdb-server` - Main database server
+          - `sochdb-grpc-server` - gRPC server for remote connections
+          - `sochdb-bulk` - Bulk import/export utility
           
           ### Changes
           
-          See the [main ToonDB changelog](https://github.com/toondb/toondb/blob/main/CHANGELOG.md) for details.
+          See the [main SochDB changelog](https://github.com/sochdb/sochdb/blob/main/CHANGELOG.md) for details.
           EOF
 
       - name: Create or update tag
@@ -224,10 +224,10 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: ToonDB Go SDK ${{ steps.version.outputs.tag }}
+          name: SochDB Go SDK ${{ steps.version.outputs.tag }}
           body_path: release_notes.md
           files: |
-            toondb-go-${{ steps.version.outputs.version }}.tar.gz
+            sochdb-go-${{ steps.version.outputs.version }}.tar.gz
           draft: false
           prerelease: false
         env:
