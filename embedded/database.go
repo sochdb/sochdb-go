@@ -17,8 +17,8 @@ package embedded
 
 /*
 #cgo LDFLAGS: -lsochdb_storage
-#cgo darwin LDFLAGS: -Wl,-rpath,/usr/local/lib
-#cgo linux LDFLAGS: -Wl,-rpath,/usr/local/lib
+#cgo darwin LDFLAGS: -Wl,-rpath,/usr/local/lib -Wl,-rpath,/opt/homebrew/lib
+#cgo linux LDFLAGS: -Wl,-rpath,/usr/local/lib -Wl,-rpath,/usr/lib
 
 #include <stdlib.h>
 #include <stdint.h>
