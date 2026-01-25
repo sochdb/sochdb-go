@@ -1,7 +1,243 @@
-# SochDB Go SDK v0.4.0
+# SochDB Go SDK v0.4.2
 
 **Dual-mode architecture: Embedded (FFI) + Server (gRPC/IPC)**  
 Choose the deployment mode that fits your needs.
+
+## 🆕 What's New in v0.4.2
+
+### Memory System - LLM-Native Memory Layer
+Build production-ready memory systems for AI applications with extraction, consolidation, and hybrid retrieval:
+
+```go
+import (
+	sochdb "github.com/sochdb/sochdb-go"
+	"github.com/sochdb/sochdb-go/embedded"
+)
+
+db, _ := embedded.Open("./mydb")
+defer db.Close()
+
+// 1. Extract structured facts from LLM outputs
+schema := &sochdb.ExtractionSchema{
+	EntityTypes:   []string{"Person", "Company"},
+	RelationTypes: []string{"works_at", "founded", "acquired"},
+}
+
+pipeline := sochdb.NewExtractionPipeline(db, "memory", schema)
+
+result := &sochdb.ExtractionResult{
+	Entities: []sochdb.Entity{
+		{Name: "Alice", EntityType: "Person"},
+		{Name: "TechCorp", EntityType: "Company"},
+	},
+	Relations: []sochdb.Relation{
+		{FromEntity: "Alice", RelationType: "works_at", ToEntity: "TechCorp"},
+	},
+}
+
+pipeline.Commit(result)
+
+// 2. Consolidate facts from multiple sources
+consolidator := sochdb.NewConsolidator(db, "memory", &sochdb.ConsolidationConfig{
+	SimilarityThreshold: 0.85,
+	UseTemporalUpdates:  true,
+})
+
+// Add assertions from different sources
+consolidator.Add(&sochdb.RawAssertion{
+	Fact:       map[string]interface{}{"subject": "Alice", "claim": "works at TechCorp"},
+	Source:     "linkedin",
+	Confidence: 0.95,
+})
+
+consolidator.Add(&sochdb.RawAssertion{
+	Fact:       map[string]interface{}{"subject": "Alice", "claim": "works at TechCorp"},
+	Source:     "company_website",
+	Confidence: 0.90,
+})
+
+// Consolidate into canonical facts
+consolidator.Consolidate()
+
+// 3. Hybrid retrieval with BM25 + semantic search
+retriever := sochdb.NewHybridRetriever(db, "memory", &sochdb.RetrievalConfig{
+	Limit:          10,
+	LexicalWeight:  0.3,  // BM25
+	SemanticWeight: 0.7,  // Cosine similarity
+	RRFConstant:    60,   // Reciprocal Rank Fusion
+})
+
+retriever.IndexDocuments(map[string]map[string]interface{}{
+	"doc1": {
+		"text":     "Alice is a senior software engineer at TechCorp",
+		"category": "profile",
+	},
+})
+
+// Pre-filter with AllowedSet
+filterAllowed := &sochdb.FilterAllowedSet{
+	FilterFn: func(id string, doc map[string]interface{}) bool {
+		return doc["category"] == "profile"
+	},
+}
+
+results, _ := retriever.Retrieve("Alice engineer", filterAllowed)
+for _, result := range results {
+	fmt.Printf("Score: %.4f - %s\n", result["_score"], result["text"])
+}
+```
+
+**Key Benefits:**
+- ✅ **Extraction Pipeline**: Compile LLM outputs into typed facts (Entity, Relation, Assertion)
+- ✅ **Event-Sourced Consolidation**: Merge multi-source assertions with confidence scores
+- ✅ **Contradiction Handling**: Temporal updates with configurable conflict resolution
+- ✅ **Hybrid Retrieval**: BM25 (lexical) + Cosine (semantic) with RRF fusion
+- ✅ **Pre-filtering**: IdsAllowedSet, NamespaceAllowedSet, FilterAllowedSet, AllAllowedSet
+- ✅ **Explainable Scoring**: Inspect lexical/semantic/combined scores
+
+### Semantic Cache - LLM Response Caching
+Vector similarity-based caching for LLM responses to reduce costs and latency:
+
+```go
+import (
+    sochdb "github.com/sochdb/sochdb-go"
+    "github.com/sochdb/sochdb-go/embedded"
+)
+
+db, _ := embedded.Open("./mydb")
+defer db.Close()
+
+cache := sochdb.NewSemanticCache(db, "llm_responses")
+
+// Store LLM response with embedding
+cache.Put(
+    "What is machine learning?",
+    "Machine learning is a subset of AI...",
+    []float32{0.1, 0.2, ...},  // 384-dim vector
+    3600,  // TTL in seconds
+    map[string]interface{}{"model": "gpt-4", "tokens": 150},
+)
+
+// Check cache before calling LLM
+hit, _ := cache.Get(queryEmbedding, 0.85)
+if hit != nil {
+    fmt.Printf("Cache HIT! Similarity: %.4f\n", hit.Score)
+    fmt.Printf("Response: %s\n", hit.Value)
+}
+
+// Get statistics
+stats, _ := cache.Stats()
+fmt.Printf("Hit rate: %.1f%%\n", stats.HitRate*100)
+```
+
+**Key Benefits:**
+- ✅ Cosine similarity matching (0-1 threshold)
+- ✅ TTL-based expiration
+- ✅ Hit/miss statistics tracking
+- ✅ Memory usage monitoring
+- ✅ Automatic expired entry purging
+
+### Context Query Builder - Token-Aware LLM Context
+Assemble LLM context with priority-based truncation and token budgeting:
+
+```go
+import sochdb "github.com/sochdb/sochdb-go"
+
+builder := sochdb.NewContextQueryBuilder().
+    WithBudget(4096).  // Token limit
+    SetFormat(sochdb.FormatTOON).
+    SetTruncation(sochdb.TailDrop)
+
+builder.
+    Literal("SYSTEM", 0, "You are a helpful AI assistant.").
+    Literal("USER_PROFILE", 1, "User: Alice, Role: Engineer").
+    Literal("HISTORY", 2, "Recent conversation context...").
+    Literal("KNOWLEDGE", 3, "Retrieved documents...")
+
+result, _ := builder.Execute()
+fmt.Printf("Tokens: %d/%d\n", result.TokenCount, 4096)
+fmt.Printf("Context:\n%s\n", result.Text)
+```
+
+**Key Benefits:**
+- ✅ Priority-based section ordering (lower = higher priority)
+- ✅ Token budget enforcement
+- ✅ Multiple truncation strategies (tail drop, head drop, proportional)
+- ✅ Multiple output formats (TOON, JSON, Markdown)
+- ✅ Token count estimation
+
+### Namespace API - Multi-Tenant Isolation
+First-class namespace handles for secure multi-tenancy and data isolation:
+
+```go
+import (
+    sochdb "github.com/sochdb/sochdb-go"
+    "github.com/sochdb/sochdb-go/embedded"
+)
+
+db, _ := embedded.Open("./mydb")
+defer db.Close()
+
+// Create isolated namespace for each tenant
+namespace := &sochdb.Namespace{}
+
+// Create vector collection
+collection, _ := namespace.CreateCollection(sochdb.CollectionConfig{
+    Name:      "documents",
+    Dimension: 384,
+    Metric:    sochdb.DistanceMetricCosine,
+    Indexed:   true,
+})
+
+// Insert and search vectors
+collection.Insert([]float32{1.0, 2.0, ...}, map[string]interface{}{"title": "Doc 1"}, "")
+results, _ := collection.Search(sochdb.SearchRequest{
+    QueryVector: []float32{...},
+    K:          10,
+})
+```
+
+**[→ See Full Example](./examples/namespace/main.go)**
+
+### Priority Queue API - Task Processing
+Efficient priority queue with ordered-key storage (no O(N) blob rewrites):
+
+```go
+import (
+    sochdb "github.com/sochdb/sochdb-go"
+    "github.com/sochdb/sochdb-go/embedded"
+)
+
+db, _ := embedded.Open("./queue_db")
+defer db.Close()
+
+queue := sochdb.NewPriorityQueue(db, "tasks", nil)
+
+// Enqueue with priority (lower = higher urgency)
+taskID, _ := queue.Enqueue(1, []byte("urgent task"), map[string]interface{}{"type": "payment"})
+
+// Worker processes tasks
+task, _ := queue.Dequeue("worker-1")
+if task != nil {
+    // Process task...
+    queue.Ack(task.TaskID)
+}
+
+// Get statistics
+stats, _ := queue.Stats()
+fmt.Printf("Pending: %d, Completed: %d\n", stats.Pending, stats.Completed)
+```
+
+**[→ See Full Example](./examples/queue/main.go)**
+
+**Key Benefits:**
+- ✅ O(log N) enqueue/dequeue with ordered scans
+- ✅ Atomic claim protocol for concurrent workers
+- ✅ Visibility timeout for crash recovery
+- ✅ Dead letter queue for failed tasks
+- ✅ Multiple queues per database
+
+---
 
 ## Architecture: Flexible Deployment
 
