@@ -1,9 +1,9 @@
-# SochDB Go SDK v0.4.1
+# SochDB Go SDK
 
 **Dual-mode architecture: Embedded (FFI) + Server (gRPC/IPC)**  
 Choose the deployment mode that fits your needs.
 
-## 🆕 What's New in v0.4.1
+## Features
 
 ### Semantic Cache - LLM Response Caching
 Vector similarity-based caching for LLM responses to reduce costs and latency:
