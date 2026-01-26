@@ -8,56 +8,12 @@
 
 ### Step 1: Install the Native Library
 
-The Go SDK requires the native SochDB library (`libsochdb_storage`) to be installed on your system.
-
-**Option A: Automatic Installation (Recommended)**
-
 ```bash
-# Clone the repository
-git clone https://github.com/sochdb/sochdb-go.git
-cd sochdb-go
-
-# Run the installation script
-# This will install the library to /usr/local/lib
+# Automatic installation (installs to /usr/local/lib)
 SOCHDB_ROOT=/path/to/sochdb ./install-lib.sh
 ```
 
-**Option B: Manual Installation**
-
-```bash
-# Build the native library
-cd /path/to/sochdb
-cargo build --release
-
-# Copy to system location (macOS/Linux)
-sudo cp target/release/libsochdb_storage.{dylib,so} /usr/local/lib/
-sudo ldconfig  # Linux only
-
-# Create pkg-config file
-cat > /tmp/libsochdb_storage.pc <<EOF
-prefix=/usr/local
-exec_prefix=\${prefix}
-libdir=\${exec_prefix}/lib
-includedir=\${prefix}/include
-
-Name: libsochdb_storage
-Description: SochDB Native Storage Library
-Version: 0.4.0
-Libs: -L\${libdir} -lsochdb_storage
-Cflags: -I\${includedir}
-EOF
-
-sudo mv /tmp/libsochdb_storage.pc /usr/local/lib/pkgconfig/
-```
-
-**Option C: Development Mode (No Installation)**
-
-```bash
-# Set environment variables before running
-export DYLD_LIBRARY_PATH=/path/to/sochdb/target/debug  # macOS
-export LD_LIBRARY_PATH=/path/to/sochdb/target/debug    # Linux
-export CGO_LDFLAGS="-L/path/to/sochdb/target/debug -lsochdb_storage"
-```
+**If automatic installation doesn't work**, see manual installation steps in [Troubleshooting](#library-not-found-error).
 
 ### Step 2: Install the Go SDK
 
@@ -466,13 +422,33 @@ db, _ := embedded.OpenConcurrent("./data.db")
 ld: library not found for -lsochdb_storage
 ```
 
-**Solution 1** - Install library to system path:
+**Solution 1** - Manual installation:
 ```bash
-# Run the install script
-SOCHDB_ROOT=/path/to/sochdb ./install-lib.sh
+# Build the native library
+cd /path/to/sochdb
+cargo build --release
+
+# Copy to system location (macOS/Linux)
+sudo cp target/release/libsochdb_storage.{dylib,so} /usr/local/lib/
+sudo ldconfig  # Linux only
+
+# Create pkg-config file
+cat > /tmp/libsochdb_storage.pc <<EOF
+prefix=/usr/local
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+includedir=\${prefix}/include
+
+Name: libsochdb_storage
+Description: SochDB Native Storage Library
+Libs: -L\${libdir} -lsochdb_storage
+Cflags: -I\${includedir}
+EOF
+
+sudo mv /tmp/libsochdb_storage.pc /usr/local/lib/pkgconfig/
 ```
 
-**Solution 2** - Use development mode:
+**Solution 2** - Development mode (no installation):
 ```bash
 export DYLD_LIBRARY_PATH=/path/to/sochdb/target/release  # macOS
 export LD_LIBRARY_PATH=/path/to/sochdb/target/release    # Linux
