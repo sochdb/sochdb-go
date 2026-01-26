@@ -1,7 +1,91 @@
-# SochDB Go SDK
+# SochDB Go SDK v0.4.4
 
-**Dual-mode architecture: Embedded (FFI) + Server (gRPC/IPC)**  
+**Dual-mode architecture: Embedded (FFI) + Concurrent + Server (gRPC/IPC)**  
 Choose the deployment mode that fits your needs.
+
+## Quick Start
+
+### Concurrent Embedded Mode (NEW in v0.4.4)
+
+For web applications with multiple workers/processes:
+
+```go
+import "github.com/sochdb/sochdb-go/embedded"
+
+// Open in concurrent mode - multiple processes can access simultaneously
+db, err := embedded.OpenConcurrent("./web_db")
+if err != nil {
+    log.Fatal(err)
+}
+defer db.Close()
+
+// Reads are lock-free and parallel (~100ns)
+value, err := db.Get([]byte("user:123"))
+
+// Writes are automatically coordinated
+err = db.Put([]byte("user:123"), []byte(`{"name": "Alice"}`))
+
+// Check if concurrent mode is active
+fmt.Printf("Concurrent mode: %v\n", db.IsConcurrent())  // true
+```
+
+### Gin/Echo Example (Multiple Workers)
+
+```go
+package main
+
+import (
+    "github.com/gin-gonic/gin"
+    "github.com/sochdb/sochdb-go/embedded"
+    "log"
+)
+
+func main() {
+    // Open database in concurrent mode
+    db, err := embedded.OpenConcurrent("./gin_db")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer db.Close()
+    
+    r := gin.Default()
+    
+    r.GET("/user/:id", func(c *gin.Context) {
+        // Multiple concurrent requests can read simultaneously
+        key := []byte("user:" + c.Param("id"))
+        data, err := db.Get(key)
+        if err != nil || data == nil {
+            c.JSON(404, gin.H{"error": "not found"})
+            return
+        }
+        c.Data(200, "application/json", data)
+    })
+    
+    r.POST("/user/:id", func(c *gin.Context) {
+        // Writes are serialized automatically
+        key := []byte("user:" + c.Param("id"))
+        body, _ := c.GetRawData()
+        if err := db.Put(key, body); err != nil {
+            c.JSON(500, gin.H{"error": err.Error()})
+            return
+        }
+        c.JSON(200, gin.H{"status": "ok"})
+    })
+    
+    // Start with multiple workers (e.g., via systemd or Docker)
+    // Each worker process can access the database concurrently
+    r.Run(":8080")
+}
+```
+
+### Performance
+
+| Operation | Standard Mode | Concurrent Mode |
+|-----------|---------------|-----------------|
+| Read (single process) | ~100ns | ~100ns |
+| Read (multi-process) | **Blocked** ❌ | ~100ns ✅ |
+| Write | ~5ms (fsync) | ~60µs (amortized) |
+| Max concurrent readers | 1 | 1024 |
 
 ## Features
 

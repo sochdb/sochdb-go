@@ -49,6 +49,8 @@ typedef struct {
 
 // Database lifecycle
 extern DatabasePtr sochdb_open(const char* path);
+extern DatabasePtr sochdb_open_concurrent(const char* path);
+extern int sochdb_is_concurrent(DatabasePtr db);
 extern void sochdb_close(DatabasePtr db);
 
 // Transaction API
@@ -89,14 +91,17 @@ import (
 
 // Database represents an embedded SochDB instance with direct FFI access
 type Database struct {
-	ptr  C.DatabasePtr
-	path string
+	ptr        C.DatabasePtr
+	path       string
+	concurrent bool
 }
 
 // Open opens a SochDB database at the specified path
 //
 // The database is created if it doesn't exist. Returns an error if the
 // database cannot be opened.
+//
+// For web applications with multiple processes, use OpenConcurrent instead.
 func Open(path string) (*Database, error) {
 	cpath := C.CString(path)
 	defer C.free(unsafe.Pointer(cpath))
@@ -107,9 +112,63 @@ func Open(path string) (*Database, error) {
 	}
 
 	return &Database{
-		ptr:  ptr,
-		path: path,
+		ptr:        ptr,
+		path:       path,
+		concurrent: false,
 	}, nil
+}
+
+// OpenConcurrent opens a SochDB database in concurrent mode
+//
+// This mode allows multiple processes (e.g., HTTP server workers) to access
+// the database simultaneously. Features:
+//   - Lock-free reads with ~100ns latency
+//   - Multi-reader, single-writer coordination
+//   - Automatic write serialization
+//
+// Example (Gin web server with multiple workers):
+//
+//	db, err := embedded.OpenConcurrent("./web_db")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer db.Close()
+//
+//	r := gin.Default()
+//	r.GET("/user/:id", func(c *gin.Context) {
+//	    // Multiple concurrent requests can read simultaneously
+//	    data, err := db.Get([]byte("user:" + c.Param("id")))
+//	    if err != nil {
+//	        c.JSON(404, gin.H{"error": "not found"})
+//	        return
+//	    }
+//	    c.Data(200, "application/json", data)
+//	})
+//
+//	// Start with multiple workers
+//	// Each worker process can access the database concurrently
+//	r.Run(":8080")
+func OpenConcurrent(path string) (*Database, error) {
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+
+	ptr := C.sochdb_open_concurrent(cpath)
+	if ptr == nil {
+		return nil, fmt.Errorf("failed to open database in concurrent mode at %s", path)
+	}
+
+	isConcurrent := int(C.sochdb_is_concurrent(ptr))
+
+	return &Database{
+		ptr:        ptr,
+		path:       path,
+		concurrent: isConcurrent == 1,
+	}, nil
+}
+
+// IsConcurrent returns true if the database is opened in concurrent mode
+func (db *Database) IsConcurrent() bool {
+	return db.concurrent
 }
 
 // Close closes the database and releases all resources
