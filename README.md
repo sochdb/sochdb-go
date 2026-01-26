@@ -87,6 +87,53 @@ func main() {
 | Write | ~5ms (fsync) | ~60µs (amortized) |
 | Max concurrent readers | 1 | 1024 |
 
+### Deployment with Systemd (Multiple Workers)
+
+```bash
+# /etc/systemd/system/myapp@.service
+[Unit]
+Description=MyApp Worker %i
+After=network.target
+
+[Service]
+Type=simple
+User=appuser
+WorkingDirectory=/opt/myapp
+ExecStart=/opt/myapp/server
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# Start 4 worker instances (all can access same DB concurrently)
+sudo systemctl start myapp@1
+sudo systemctl start myapp@2
+sudo systemctl start myapp@3
+sudo systemctl start myapp@4
+
+# Enable on boot
+sudo systemctl enable myapp@{1,2,3,4}
+```
+
+### Docker Compose Example
+
+```yaml
+version: '3.8'
+services:
+  app:
+    build: .
+    deploy:
+      replicas: 4  # 4 workers share the same database
+    volumes:
+      - ./data:/app/data  # Shared database volume
+    ports:
+      - "8080-8083:8080"
+```
+
+---
+
 ## Features
 
 ### Semantic Cache - LLM Response Caching
@@ -272,6 +319,118 @@ fmt.Printf("Pending: %d, Completed: %d\n", stats.Pending, stats.Completed)
 - ✅ Distributed systems
 - ✅ Centralized business logic
 - ✅ Horizontal scaling
+
+---
+
+---
+
+## System Requirements
+
+### For Concurrent Mode
+
+- **SochDB Core**: v0.4.4 or later
+- **Go Version**: 1.18+
+- **CGO**: Required (uses C bindings)
+- **Native Library**: `libsochdb_storage.{dylib,so}` v0.4.4+
+
+**Operating Systems:**
+- ✅ Linux (Ubuntu 20.04+, RHEL 8+)
+- ✅ macOS (10.15+, both Intel and Apple Silicon)
+- ⚠️  Windows (requires WSL2 or native builds with MinGW)
+
+**File Descriptors:**
+- Default limit: 1024 (sufficient for most workloads)
+- For high concurrency: Increase with `ulimit -n 4096`
+
+**Memory:**
+- Standard mode: ~50MB base + data
+- Concurrent mode: +4KB per concurrent reader slot (1024 slots = ~4MB overhead)
+
+---
+
+## Troubleshooting
+
+### "Database is locked" Error (Standard Mode)
+
+```
+Error: database is locked by another process
+```
+
+**Solution**: Use concurrent mode for multi-process access:
+
+```go
+// ❌ Standard mode - only one process allowed
+db, _ := embedded.Open("./data.db")
+
+// ✅ Concurrent mode - unlimited processes
+db, _ := embedded.OpenConcurrent("./data.db")
+```
+
+### Library Not Found Error
+
+```
+ld: library not found for -lsochdb_storage
+```
+
+**Solution 1** - Install library to system path:
+```bash
+# Run the install script
+SOCHDB_ROOT=/path/to/sochdb ./install-lib.sh
+```
+
+**Solution 2** - Use development mode:
+```bash
+export DYLD_LIBRARY_PATH=/path/to/sochdb/target/release  # macOS
+export LD_LIBRARY_PATH=/path/to/sochdb/target/release    # Linux
+export CGO_LDFLAGS="-L/path/to/sochdb/target/release -lsochdb_storage"
+```
+
+### CGO Not Found
+
+```
+go: C compiler "gcc" not found
+```
+
+**macOS**:
+```bash
+xcode-select --install
+```
+
+**Linux**:
+```bash
+# Ubuntu/Debian
+sudo apt-get install build-essential
+
+# RHEL/Fedora
+sudo yum groupinstall "Development Tools"
+```
+
+### Performance Issues
+
+**Symptom**: Concurrent reads slower than expected
+
+**Check 1** - Verify concurrent mode is active:
+```go
+if !db.IsConcurrent() {
+    log.Fatal("Database opened in standard mode!")
+}
+```
+
+**Check 2** - Monitor reader slot usage:
+```bash
+# Enable debug logging in SochDB core
+export RUST_LOG=sochdb_storage=debug
+```
+
+**Check 3** - Tune write batching:
+```go
+// Batch writes for better throughput
+tx, _ := db.BeginTxn()
+for i := 0; i < 1000; i++ {
+    tx.Put([]byte(fmt.Sprintf("key%d", i)), value)
+}
+tx.Commit()  // Single fsync for entire batch
+```
 
 ---
 
